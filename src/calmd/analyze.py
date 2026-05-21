@@ -14,8 +14,8 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from scipy.stats import wasserstein_distance
 
-from database import MultiDimDb
-from _setupbase import MscuaSetup
+from calmd.database import MultiDimDb
+from calmd._setupbase import MscuaSetup
 
 
 class MsCuaAnalyzer:

@@ -4,7 +4,7 @@ from typing import Union, Optional
 import tqdm
 import spotpy
 
-from database import MultiDimDb
+from calmd.database import MultiDimDb
 
 # The following is a template for an Mscua Setup class, this should be modified to connect your specific model to the
 #   calibration scheme.

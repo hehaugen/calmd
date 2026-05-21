@@ -9,12 +9,12 @@ import dask.array as da
 import matplotlib.pyplot as plt
 import tqdm
 
-from database import MultiDimDb, MemDb
-from sample import LHS_md
-from obj_funcs import obj_func_direction
-from utils import build_parameter_list, run_multidim_model_reps
-from _setupbase import MscuaSetup
-from io import user_warning
+from calmd.database import MultiDimDb, MemDb
+from calmd.sample import LHS_md
+from calmd.obj_funcs import obj_func_direction
+from calmd.utils import build_parameter_list, run_multidim_model_reps
+from calmd._setupbase import MscuaSetup
+from calmd.io import user_warning
 
 class MsCua:
     algorithm_name = "MSCUA"
