@@ -114,10 +114,24 @@ class MsCua:
             up95ppu = np.nanquantile(sims_arr, 0.975, axis=0)
             lo95ppu = np.nanquantile(sims_arr, 0.025, axis=0)
             print("Calculating p- and r-factor metrics...")
-            obs_nonan = self.observation_data[~np.isnan(self.observation_data)]
-            pfac_arr = np.where((obs_nonan <= up95ppu) & (obs_nonan >= lo95ppu), 1, 0)
-            pfac_cnt = np.count_nonzero(pfac_arr, axis=0)
-            pfactor = pfac_cnt / up95ppu.shape[0]
+            pfac_arr = np.where((self.observation_data <= up95ppu) & (self.observation_data >= lo95ppu), 1, 0)
+
+            # # option 1
+            # pfac_cnt = np.count_nonzero(pfac_arr, axis=0)
+            # pfactor_1 = pfac_cnt / up95ppu.shape[0]
+
+            # option 2 - This one! Avoids artificially low p-factor if there are lots of nans.
+            nan_ind = np.where(np.isnan(self.observation_data))
+            pfac_arr = pfac_arr.astype(float)
+            pfac_arr[nan_ind] = np.nan
+            pfac_cnt = np.nansum(pfac_arr, axis=0)
+            pfactor = pfac_cnt / (~np.isnan(pfac_arr)).sum(axis=0)
+
+            # # checking work. Test with and without nan values in data.
+            # for i in range(up95ppu.shape[1]):
+            #     if pfactor_1[i] != pfactor[i]:
+            #         print(i, pfactor_1[i], pfactor[i])
+
             ppu_diff = (up95ppu - lo95ppu).mean(axis=0)
             rfactor = ppu_diff / obs_sd
             print(f"Max p-factor = {pfactor.max()}")
@@ -262,7 +276,7 @@ class SensitivityAnalysis:
                 pointInSegment = segmentMin + (np.random.random() * segment)
                 parset = pointInSegment * (parmax - parmin) + parmin
                 active_samp[p.name] = parset
-                rslt['samples'].values[i, r, :] = parset
+                rslt['samples'].loc[dict(parameters=p.name, repetitions=r+1)] = parset
                 sim = self.setup.simulation(active_samp)
                 #print(f"Finished model run {r}")
                 ob = self.setup.objectivefunction(self.observation_data, sim)

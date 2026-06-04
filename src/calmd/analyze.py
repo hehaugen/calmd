@@ -75,17 +75,23 @@ class MsCuaAnalyzer:
         plt.show()
 
     def plot_ppu(self, indx: int = 0, best_sim: bool = False, obs_data: Optional[np.ndarray] = None, sort: bool = False,
-                 ax: Optional[axes.Axes] = None):
+                 ax: Optional[axes.Axes] = None, sort_low: bool = True):
         dims = self.ds["95PPU_lower"].dims
         if ax is None:
             ax = plt.axes()
         else:
             ax = ax
         if sort:
-            srt_idx = np.argsort(self.ds["95PPU_lower"].values[:, indx])
+            # Remove any potential nan values so the sorted values line up.
+            nonan_ind = np.where(~np.isnan(obs_data[:, indx]))
+            if sort_low:
+                srt_idx = np.argsort(self.ds["95PPU_lower"].values[nonan_ind, indx])
+            else:
+                srt_idx = np.argsort(self.ds["95PPU_upper"].values[nonan_ind, indx])
+
             ax.fill_between(np.arange(self.ds["95PPU_lower"].values.shape[0]),
-                            self.ds["95PPU_upper"].values[srt_idx, indx],
-                            self.ds["95PPU_lower"].values[srt_idx, indx],
+                            self.ds["95PPU_upper"].values[srt_idx, indx][0],
+                            self.ds["95PPU_lower"].values[srt_idx, indx][0],
                             label="95 Percentile Prediction Uncertainty",
                             ec='blue',
                             alpha=0.3)
@@ -93,10 +99,10 @@ class MsCuaAnalyzer:
                 if self.ds["95PPU_lower"].values.shape != obs_data.shape:
                     raise ValueError(
                         "The input observation data does not match the size of the modeled 95 percent prediction uncertainty.")
-                ax.plot(np.sort(obs_data[:, indx]), marker=None, ls='-', lw=1.2, color='black', label='Observed Values')
+                ax.plot(np.sort(obs_data[nonan_ind, indx][0]), marker=None, ls='-', lw=1.2, color='black', label='Observed Values')
             if best_sim:
                 for i in self.ds["objective_functions"].values:
-                    ax.plot(self.ds[f"best_simulation_{i}"].values[srt_idx, indx], marker=None, ls='--', lw=1,
+                    ax.plot(self.ds[f"best_simulation_{i}"].values[srt_idx, indx][0], marker=None, ls='--', lw=1,
                             color='red', label=f'Best Model Simulation - {i}')
         else:
             ax.fill_between(np.arange(self.ds["95PPU_lower"].values.shape[0]),
@@ -107,7 +113,7 @@ class MsCuaAnalyzer:
                 if self.ds["95PPU_lower"].values.shape != obs_data.shape:
                     raise ValueError(
                         "The input observation data does not match the size of the modeled 95 percent prediction uncertainty.")
-                ax.plot(obs_data[:, indx], markers=None, ls='-', lw=1.25, color='black', label='Observed Values')
+                ax.plot(obs_data[:, indx], marker=None, ls='-', lw=1.25, color='black', label='Observed Values')
             if best_sim:
                 for i in self.ds["objective_functions"].values:
                     ax.plot(self.ds[f"best_simulation_{i}"].values[:, indx], marker=None, ls='--', lw=1, color='red',
