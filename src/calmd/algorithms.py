@@ -49,15 +49,27 @@ class MsCua:
             if len(dbase.simulation_results) == 0:
                 raise AttributeError("No simulation data has been saved to the input database.")
 
+            # reshape the dictionaries.
+            sims_list = dbase.simulation_results
+            sims_dict = {}
+            for ts in sims_list[0].keys():
+                sims_dict[ts] = np.zeros((len(sims_list), len(sims_list[0][ts]), len(sims_list[0][ts][0])))
+            for i in range(len(sims_list)):
+                for ts, sim_vals in sims_list[i].items():
+                    sims_dict[ts][i] = sim_vals
+
+            obs_extra_dim = {}
+            for ts in self.observation_data.keys():
+                obs_extra_dim[ts] = self.observation_data[ts][None, :, :]
+
+            # continue calcs
             dbase.thresholds = objfunc_thresh
             dbase.thresholds.update({"pfactor_threshold": min_pfactor})
             dbase.thresholds.update({"min_refined_params_threshold": min_refparams})
             dbase._ref_par = copy.deepcopy(dbase._par_samples)
             reps = len(dbase.simulation_results)
             print("Evaluating Objective Function Values...")
-            # need to convert simulation_results into an array here...sooner than it was
-            sims_arr = np.array(dbase.simulation_results)
-            ob = self.setup.objectivefunction(self.observation_data[None, :, :], sims_arr)
+            ob = self.setup.objectivefunction(obs_extra_dim, sims_dict)
             if not isinstance(ob, dict):
                 raise ValueError(
                     "The setup class's objective function method did not return a dictionary. A dictionary of objective functions is required.")
@@ -65,41 +77,48 @@ class MsCua:
             best_sim = {}
             best_obfn = {}
             best_params = {}
-            for k, v in ob.items():
-                if obj_func_direction[k] == 'minimize':
-                    best_rep = sims_arr[v.argmin(axis=0), :, np.arange(v.shape[1])].T
-                    best_ob = v[v.argmin(axis=0), np.arange(v.shape[1])]
-                    best_par = {}
-                    for pk, pv in dbase.refined_parameters.items():
-                        best_par.update({pk: pv[v.argmin(axis=0), np.arange(v.shape[1])]})
-                elif obj_func_direction[k] == 'maximize':
-                    best_rep = sims_arr[v.argmax(axis=0), :, np.arange(v.shape[1])].T
-                    best_ob = v[v.argmax(axis=0), np.arange(v.shape[1])]
-                    best_par = {}
-                    for pk, pv in dbase.refined_parameters.items():
-                        best_par.update({pk: pv[v.argmax(axis=0), np.arange(v.shape[1])]})
-                else:
-                    raise ValueError("The objective function threshold direction is not recognized.")
-                best_sim.update({k: best_rep})
-                best_obfn.update({k: best_ob})
-                best_params.update({k: best_par})
+            for var, stuff in ob.items():
+                best_sim[var] = {}
+                best_obfn[var] = {}
+                best_params[var] = {}
+                for k, v in stuff.items():
+                    if obj_func_direction[k] == 'minimize':
+                        best_rep = sims_dict[var][v.argmin(axis=0), :, np.arange(v.shape[1])].T
+                        best_ob = v[v.argmin(axis=0), np.arange(v.shape[1])]
+                        best_par = {}
+                        for pk, pv in dbase.refined_parameters.items():
+                            best_par.update({pk: pv[v.argmin(axis=0), np.arange(v.shape[1])]})
+                    elif obj_func_direction[k] == 'maximize':
+                        best_rep = sims_dict[var][v.argmax(axis=0), :, np.arange(v.shape[1])].T
+                        best_ob = v[v.argmax(axis=0), np.arange(v.shape[1])]
+                        best_par = {}
+                        for pk, pv in dbase.refined_parameters.items():
+                            best_par.update({pk: pv[v.argmax(axis=0), np.arange(v.shape[1])]})
+                    else:
+                        raise ValueError("The objective function threshold direction is not recognized.")
+                    best_sim[var].update({k: best_rep})
+                    best_obfn[var].update({k: best_ob})
+                    best_params[var].update({k: best_par})
             dbase.best_sim = best_sim
             dbase.best_params = best_params
             dbase.best_objfun = best_obfn
             fil = {}
-            for k, v in ob.items():
-                if k not in list(objfunc_thresh.keys()):
-                    raise ValueError(f"No threshold was provided for objective function {k}.")
-                if obj_func_direction[k] == 'minimize':
-                    filter = np.where(v > objfunc_thresh[k])
-                elif obj_func_direction[k] == 'maximize':
-                    filter = np.where(v < objfunc_thresh[k])
-                else:
-                    raise ValueError("The objective function threshold direction is not recognized.")
-                fil[k] = filter
-                for park in dbase.refined_parameters.keys():
-                    for k, v in fil.items():
-                        dbase._ref_par[park][v] = np.nan
+            for var, stuff in ob.items():
+                fil[var] = {}
+                for k, v in stuff.items():
+                    if k not in list(objfunc_thresh[var].keys()):
+                        raise ValueError(f"No threshold was provided for objective function {k}.")
+                    if obj_func_direction[k] == 'minimize':
+                        filter = np.where(v > objfunc_thresh[var][k])
+                    elif obj_func_direction[k] == 'maximize':
+                        filter = np.where(v < objfunc_thresh[var][k])
+                    else:
+                        raise ValueError("The objective function threshold direction is not recognized.")
+                    fil[var][k] = filter
+                    # this requires the parameter sets to meet all thresholds.
+                    for park in dbase.refined_parameters.keys():
+                        for k, v in fil[var].items():
+                            dbase._ref_par[park][v] = np.nan
             param_nans = np.isnan(dbase.refined_parameters[list(dbase.refined_parameters.keys())[0]])
             refined_param_cnt = np.count_nonzero(~param_nans, axis=0)
             print(f"Max number of refined parameter sets: {refined_param_cnt.max()}")
@@ -107,61 +126,66 @@ class MsCua:
             ref_less_than = np.count_nonzero(refined_param_cnt < min_refparams)
             # Remove simulations from sim_arr that did not meet objective function thresholds
             ref_sims_idx = np.where(param_nans)
-            sims_arr[ref_sims_idx[0], :, ref_sims_idx[1]] = np.nan
-            ## calculate 95PPU here
-            print("Calculating the 95PPU...")
-            obs_sd = np.nanstd(self.observation_data, axis=0)
-            up95ppu = np.nanquantile(sims_arr, 0.975, axis=0)
-            lo95ppu = np.nanquantile(sims_arr, 0.025, axis=0)
-            print("Calculating p- and r-factor metrics...")
-            pfac_arr = np.where((self.observation_data <= up95ppu) & (self.observation_data >= lo95ppu), 1, 0)
 
-            # # option 1
-            # pfac_cnt = np.count_nonzero(pfac_arr, axis=0)
-            # pfactor_1 = pfac_cnt / up95ppu.shape[0]
+            # save individual 95PPU, p- and r-factors for all observation time series.
+            up95ppu = {}
+            lo95ppu = {}
+            pfactor = {}
+            rfactor = {}
+            for var in self.observation_data.keys():
+                print(f"\n{var}")
+                sims_dict[var][ref_sims_idx[0], :, ref_sims_idx[1]] = np.nan
+                ## calculate 95PPU here
+                print("  Calculating the 95PPU...")  # this takes a long time for daily series.
+                obs_sd = np.nanstd(self.observation_data[var], axis=0)
+                up95ppu[var] = np.nanquantile(sims_dict[var], 0.975, axis=0)
+                lo95ppu[var] = np.nanquantile(sims_dict[var], 0.025, axis=0)
+                print("  Calculating p- and r-factor metrics...")
+                pfac_arr = np.where(
+                    (self.observation_data[var] <= up95ppu[var]) & (self.observation_data[var] >= lo95ppu[var]), 1, 0)
 
-            # option 2 - This one! Avoids artificially low p-factor if there are lots of nans.
-            nan_ind = np.where(np.isnan(self.observation_data))
-            pfac_arr = pfac_arr.astype(float)
-            pfac_arr[nan_ind] = np.nan
-            pfac_cnt = np.nansum(pfac_arr, axis=0)
-            pfactor = pfac_cnt / (~np.isnan(pfac_arr)).sum(axis=0)
+                # This avoids artificially low p-factor if there are lots of nans.
+                nan_ind = np.where(np.isnan(self.observation_data[var]))
+                pfac_arr = pfac_arr.astype(float)
+                pfac_arr[nan_ind] = np.nan
+                pfac_cnt = np.nansum(pfac_arr, axis=0)
+                pfactor[var] = pfac_cnt / (~np.isnan(pfac_arr)).sum(axis=0)
 
-            # # checking work. Test with and without nan values in data.
-            # for i in range(up95ppu.shape[1]):
-            #     if pfactor_1[i] != pfactor[i]:
-            #         print(i, pfactor_1[i], pfactor[i])
+                ppu_diff = (up95ppu[var] - lo95ppu[var]).mean(axis=0)
+                rfactor[var] = ppu_diff / obs_sd
+                print(f"  Max p-factor = {pfactor[var].max()}")
+                print(f"  Min p-factor = {pfactor[var].min()}")
+                print(f"  Min r-factor = {np.nanmin(rfactor[var])}")
+                print(f"  Max r-factor = {np.nanmax(rfactor[var])}")
 
-            ppu_diff = (up95ppu - lo95ppu).mean(axis=0)
-            rfactor = ppu_diff / obs_sd
-            print(f"Max p-factor = {pfactor.max()}")
-            print(f"Min p-factor = {pfactor.min()}")
-            print(f"Min r-factor = {np.nanmin(rfactor)}")
-            print(f"Max r-factor = {np.nanmax(rfactor)}")
             dbase.ppu_upper = up95ppu
             dbase.ppu_lower = lo95ppu
             dbase.pfactor = pfactor
             dbase.rfactor = rfactor
 
+            # take minimum pfactor from all time series for each valid parameter set.
+            # say something did not meet threshold if any individual time series metric fails.
+            tot_pfactor = np.asarray(list(pfactor.values())).min(axis=0)
+
             if ref_less_than == 0:
-                print(f"All models retained more refined parameter sets than the minimun: {min_refparams}.")
-                if np.count_nonzero(pfactor < min_pfactor) == 0:
+                print(f"\nAll models retained more refined parameter sets than the minimun: {min_refparams}.")
+                if np.count_nonzero(tot_pfactor < min_pfactor) == 0:
                     print(f"All models had p-factor greater than {min_pfactor}")
                 else:
                     print(
-                        f"{np.count_nonzero(pfactor < min_pfactor)} models had a p-factor lower than the allowable minimum: {min_pfactor}. Returning array of failed indexes.")
-                    return np.where(pfactor < min_pfactor)[0]
+                        f"{np.count_nonzero(tot_pfactor < min_pfactor)} models had a p-factor lower than the allowable minimum: {min_pfactor}. Returning array of failed indexes.")
+                    return np.where(tot_pfactor < min_pfactor)[0]
             else:
                 print(
-                    f"{ref_less_than} models had fewer than the minimum allowable refined parameter sets: {min_refparams}. Either increase the number of samples or exclude these models.")
+                    f"\n{ref_less_than} models had fewer than the minimum allowable refined parameter sets: {min_refparams}. Either increase the number of samples or exclude these models.")
                 print(f"Returning array of failed model indexes.")
-                if np.count_nonzero(pfactor < min_pfactor) == 0:
+                if np.count_nonzero(tot_pfactor < min_pfactor) == 0:
                     print(f"All models had p-factor greater than {min_pfactor}")
                     return np.where(refined_param_cnt < min_refparams)[0]
                 else:
                     print(
-                        f"{np.count_nonzero(pfactor < min_pfactor)} models had a p-factor lower than the allowable minimum: {min_pfactor}. Returning array of failed indexes.")
-                    return np.where(pfactor < min_pfactor)[0], np.where(refined_param_cnt < min_refparams)[0]
+                        f"{np.count_nonzero(tot_pfactor < min_pfactor)} models had a p-factor lower than the allowable minimum: {min_pfactor}. Returning array of failed indexes.")
+                    return np.where(tot_pfactor < min_pfactor)[0], np.where(refined_param_cnt < min_refparams)[0]
 
         else:
             raise NotImplementedError("Other databases not supported")
@@ -272,9 +296,9 @@ class SensitivityAnalysis:
             print(f"Sampling {reps} repetitions of the {p.name} parameter...")
             for r in tqdm.tqdm(range(reps), desc=f"{p.name} samples", leave=False):
                 # iterate samples per paramter here, run simulation, calculate objective function and assign values
-                segmentMin = r * segment
-                pointInSegment = segmentMin + (np.random.random() * segment)
-                parset = pointInSegment * (parmax - parmin) + parmin
+                segmentmin = r * segment
+                point_in_segment = segmentmin + (np.random.random() * segment)
+                parset = point_in_segment * (parmax - parmin) + parmin
                 active_samp[p.name] = parset
                 rslt['samples'].loc[dict(parameters=p.name, repetitions=r+1)] = parset
                 sim = self.setup.simulation(active_samp)
