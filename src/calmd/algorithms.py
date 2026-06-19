@@ -26,7 +26,6 @@ class MsCua:
             dbformat: str = 'memory',
             dbappend: bool = False,
             iter_db: Union[str, Path, None] = None
-
     ):
         self.setup = setup_class
         if dbformat == 'memory':
@@ -362,7 +361,7 @@ class SensitivityAnalysis:
             self.results = results_ds
 
     def sample(self, reps: int = 10, defaults: Optional[dict] = None):
-        plist = build_parameter_list(self.setup, self.setup.parameter_dimension, self.setup.param_dim_name)
+        plist = build_parameter_list(self.setup, self.setup.parameter_dimension, self.setup.param_dim_names)
         pnames = []
         objf_names = None
         init_samp = {}
@@ -400,12 +399,12 @@ class SensitivityAnalysis:
         rslt = xr.Dataset()
         rslt.coords['parameters'] = (('parameters',), pnames)
         rslt.coords['repetitions'] = (('repetitions',), np.arange(reps) + 1)
-        rslt.coords[self.setup.param_dim_name] = ((self.setup.param_dim_name,), np.arange(plist[0].dim) + 1)
+        rslt.coords[self.setup.param_dim_names] = ((self.setup.param_dim_names,), np.arange(plist[0].dim) + 1)
         arr_sz = (len(pnames), reps, self.setup.parameter_dimension)
         active_samp = copy.deepcopy(init_samp)
         segment = 1 / float(reps)
         rslt['samples'] = (
-        ('parameters', 'repetitions', self.setup.param_dim_name), da.from_array(np.empty(arr_sz), chunks='auto'))
+        ('parameters', 'repetitions', self.setup.param_dim_names), da.from_array(np.empty(arr_sz), chunks='auto'))
         for i, p in enumerate(plist):
             # sample parameter space here
             parmin = p.minbound
@@ -427,19 +426,40 @@ class SensitivityAnalysis:
                 sim = self.setup.simulation(active_samp)
                 #print(f"Finished model run {r}")
                 ob = self.setup.objectivefunction(self.observation_data, sim)
-                if objf_names is None:
-                    objf_names = []
-                    for k in ob.keys():
-                        objf_names.append(k)
-                    rslt.coords['objective_functions'] = (('objective_functions',), objf_names)
-                # logic to check for obj func name in dataset datavars, if not there, add (initialize dask empty dask array), if it is there append by index
-                for k, v in ob.items():
-                    if k not in list(rslt.data_vars):
-                        rslt[k] = (
-                        ('parameters', 'repetitions', p.dim_name), da.from_array(np.empty(arr_sz), chunks='auto'))
-                        rslt[k].values[i, r, :] = v
-                    else:
-                        rslt[k].values[i, r, :] = v
+                if isinstance(list(ob.values())[0], dict):
+                    # use nested dict logic to save results
+                    if objf_names is None:
+                        objf_names = []
+                        for ts, objs in ob.items():
+                            for obj in objs.keys():
+                                objf_names.append(f'{obj}_{ts}')
+                        rslt.coords['objective_functions'] = (('objective_functions',), objf_names)
+                    # logic to check for obj func name in dataset datavars, if not there, add (initialize dask empty dask array), if it is there append by index
+                    for ts, objs in ob.items():
+                        for obj, v in objs.items():
+                            ob_ts = f'{obj}_{ts}'
+                            if ob_ts not in list(rslt.data_vars):
+                                rslt[ob_ts] = (
+                                    ('parameters', 'repetitions', p.dim_name),
+                                    da.from_array(np.empty(arr_sz), chunks='auto'))
+                                rslt[ob_ts].loc[dict(parameters=p.name, repetitions=r + 1)] = v
+                            else:
+                                rslt[ob_ts].loc[dict(parameters=p.name, repetitions=r + 1)] = v
+                else:
+                    if objf_names is None:
+                        objf_names = []
+                        for k in ob.keys():
+                            objf_names.append(k)
+                        rslt.coords['objective_functions'] = (('objective_functions',), objf_names)
+                    # logic to check for obj func name in dataset datavars, if not there, add (initialize dask empty dask array), if it is there append by index
+                    for k, v in ob.items():
+                        if k not in list(rslt.data_vars):
+                            rslt[k] = (
+                                ('parameters', 'repetitions', p.dim_name),
+                                da.from_array(np.empty(arr_sz), chunks='auto'))
+                            rslt[k].loc[dict(parameters=p.name, repetitions=r + 1)] = v
+                        else:
+                            rslt[k].loc[dict(parameters=p.name, repetitions=r + 1)] = v
             # result active samp
             active_samp[p.name] = init_samp[p.name]
             self.results = rslt
@@ -453,7 +473,7 @@ class SensitivityAnalysis:
                     rslt[obf].sel(parameters=par).values, axis=0)
                 sens_arr = n / d
                 sens_indx[i, j, :] = sens_arr
-        rslt['sensitivity_index'] = (('objective_functions', 'parameters', self.setup.param_dim_name), sens_indx)
+        rslt['sensitivity_index'] = (('objective_functions', 'parameters', self.setup.param_dim_names), sens_indx)
         self.results = rslt
 
     def plot_sensitivity_index(self, indx: int = 0):
