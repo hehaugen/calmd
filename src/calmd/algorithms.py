@@ -43,7 +43,7 @@ class MsCua:
         """
         if dbase.format == 'memory':
             if not dbase.parameter_samples:
-                raise AttributeError("No paramter samples have been saved to the input database.")
+                raise AttributeError("No parameter samples have been saved to the input database.")
             if len(dbase.simulation_results) == 0:
                 raise AttributeError("No simulation data has been saved to the input database.")
 
@@ -257,8 +257,9 @@ class MsCua:
                 ## calculate 95PPU here
                 print("  Calculating the 95PPU...")  # this takes a long time for daily series.
                 obs_sd = np.nanstd(self.observation_data[var], axis=0)
-                up95ppu[var] = np.nanquantile(sims_dict[var], 0.975, axis=0)
-                lo95ppu[var] = np.nanquantile(sims_dict[var], 0.025, axis=0)
+                ppu95 = np.nanquantile(sims_dict[var], [0.025, 0.975], axis=0)
+                lo95ppu[var] = ppu95[0]
+                up95ppu[var] = ppu95[1]
                 print("  Calculating p- and r-factor metrics...")
                 pfac_arr = np.where(
                     (self.observation_data[var] <= up95ppu[var]) & (self.observation_data[var] >= lo95ppu[var]), 1, 0)
