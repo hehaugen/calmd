@@ -4,7 +4,7 @@ from typing import Union, Optional
 import tqdm
 import spotpy
 
-from database import MultiDimDb
+from calmd.database import MultiDimDb
 
 # The following is a template for an Mscua Setup class, this should be modified to connect your specific model to the
 #   calibration scheme.
@@ -22,7 +22,7 @@ class MscuaSetup:
         self.parameter_dimension = 0
         # This customizes the dimension name that is carried through the database, here the default is "model" but this
         #   could be feature, model, field, HRU, whatever descriptive name the parameter is attached to.
-        self.param_dim_name = 'model'
+        self.param_dim_names = 'model'
         # Here you could define any number of attributes that are specific to your model and may be used in the
         #   required methods below, for example observation data.
         self.observation_data = None

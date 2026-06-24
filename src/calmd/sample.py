@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import spotpy
 import tqdm
 
-from database import MultiDimDb, MemDb
+from calmd.database import MultiDimDb, MemDb
 
 
 # TODO - This needs lots of improvements to generalize to iterative database writing (like for zarr)
