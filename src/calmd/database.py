@@ -235,24 +235,24 @@ class MemDb(MultiDimDb):
                             (f"observation_{ts}", self.dim_names[list(self.dim_names.keys())[0]]),
                             self.best_sim[ts][obf],
                             {"description": f"the simulation repetition with the best {obf} value"})
+                ts_len = len(self.objective_func_values[ts][obf][0])
 
                 if self.best_objfun is not None:
                     bst_obfn = []
                     bst_params = []
-                    for obf in obfs:
-                        bst_obfn.append(self.best_objfun[ts][obf])
-                        bst_p_mid = []
-                        if self.best_params is not None:
-                            for pnm in param_names:
-                                bst_p_mid.append(self.best_params[ts][obf][pnm])
-                            bst_p_arr = np.array(bst_p_mid)
-                            bst_params.append(bst_p_arr)
-                    if len(obfs) < len(objfunc_names_flat):
-                        for i in range(len(objfunc_names_flat) - len(obfs)):
-                            bst_obfn.append(np.full_like(self.best_objfun[ts][obf], np.nan))
+                    for obf in objfunc_names_flat:
+                        if obf in obfs:
+                            bst_obfn.append(self.best_objfun[ts][obf])
+                            bst_p_mid = []
                             if self.best_params is not None:
-                                bst_params.append(np.full_like(bst_p_arr, np.nan))
-                    # print('bst_obfn', np.shape(bst_obfn))  # , bst_obfn)
+                                for pnm in param_names:
+                                    bst_p_mid.append(self.best_params[ts][obf][pnm])
+                                bst_p_arr = np.array(bst_p_mid)
+                                bst_params.append(bst_p_arr)
+                        else:
+                            bst_obfn.append(np.full(ts_len, np.nan))
+                            if self.best_params is not None:
+                                bst_params.append(np.full((len(param_names), ts_len), np.nan))
                     # print(self.dim_names[list(self.dim_names.keys())[0]])  # "field"
                     ds[f"best_obj_function_{ts}"] = (
                         ("objective_functions", self.dim_names[list(self.dim_names.keys())[0]]), np.array(bst_obfn))
